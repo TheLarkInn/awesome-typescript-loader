@@ -5,11 +5,46 @@ import * as _ from 'lodash';
 const ModulesInRootPlugin: new (a: string, b: string, c: string) => ResolverPlugin
     = require('enhanced-resolve/lib/ModulesInRootPlugin');
 
+
 const createInnerCallback: CreateInnerCallback = require('enhanced-resolve/lib/createInnerCallback');
 const getInnerRequest: getInnerRequest = require('enhanced-resolve/lib/getInnerRequest');
 
+const forEachBail = function forEachBail(array, iterator, callback) {
+    if(array.length == 0) return callback();
+    var currentPos = array.length;
+    var currentResult;
+    var done = [];
+    for(var i = 0; i < array.length; i++) {
+        var itCb = createIteratorCallback(i);
+        iterator(array[i], itCb);
+        if(currentPos == 0) break;
+    }
+
+    function createIteratorCallback(i) {
+        return function() {
+            if(i >= currentPos) return; // ignore
+            var args = Array.prototype.slice.call(arguments);
+            done.push(i);
+            if(args.length > 0) {
+                currentPos = i + 1;
+                done = done.filter(function(item) {
+                    return item <= i;
+                });
+                currentResult = args;
+            }
+            if(done.length == currentPos) {
+                callback.apply(null, currentResult);
+                currentPos = 0;
+            }
+        };
+    }
+};
+
 type CreateInnerCallback = (callback: Callback, options: Callback, message?: string, messageOptional?: string) => Callback;
 type getInnerRequest = (resolver: Resolver, request: Request) => string;
+
+type ForEachBailCallback = (iterator: any, callback: Callback) => void;
+type forEachBail = (array: any[], callback: ForEachBailCallback) => void;
 
 export interface Request {
     request?: Request;
@@ -101,14 +136,19 @@ export class PathsPlugin implements ResolverPlugin {
     }
 
     apply(resolver: Resolver) {
+        if (!this.baseUrl) {
+            return;
+        }
         let { baseUrl, mappings } = this;
 
         if (baseUrl) {
             resolver.apply(new ModulesInRootPlugin("module", this.absoluteBaseUrl, "resolve"));
         }
 
-        mappings.forEach(mapping => {
+        forEachBail(mappings, (mapping) => {
             resolver.plugin(this.source, this.createPlugin(resolver, mapping));
+        },
+        function(err, result) {
         });
     }
 
